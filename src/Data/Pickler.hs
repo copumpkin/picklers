@@ -68,7 +68,7 @@ integral = xmap fromIntegral fromIntegral
 
 
 
-
+-- TODO: CONTEXT FOR INTERNED STRINGS AND SUCH
 
 
 -- Polymorphic containers
@@ -82,6 +82,7 @@ list (Pickler g p) = Pickler g' p'
 
 -- I'd like the inner pickler to be able to carry context, but what if
 -- context differs for different inner elements?
+-- TODO: ContextCoherence? 
 vector :: (G.Vector v a, Integral i) => Pickle a -> Pickler '[i] (v a)
 vector (Pickler g p) = Pickler g' p'
   where
