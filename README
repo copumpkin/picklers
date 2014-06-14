@@ -1,0 +1,7 @@
+Basically an experiment with some restricted forms of bidirectional computation. Some hints of linear types and other shenanigans encoded in Haskell.
+
+Ultimate goal: I want fast, efficient, flexible, and painless bidirectional binary serialization.
+
+I don't want to write isomorphisms unless I have to, and I want to be able to separate related pieces of information in my data. Like, the array length should be separable from its data. More interestingly, it could be nested inside some other kind of structure or even repeated (although then you'd need coherence requirements/lattices).
+
+I also have a devious plan for pseudo-monadic syntax on top of all this for people who love do notation, despite the opaque functions hiding inside monads. Implementing that isn't super high on my priorities though.
