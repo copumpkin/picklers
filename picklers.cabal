@@ -16,8 +16,7 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 library
-  exposed-modules:     Data.Pickler, Data.Pickler.Node, Data.Pickler.Types, Data.Pickler.TH
-  -- other-modules:       
+  exposed-modules:     Data.Pickler, Data.Pickler.Types, Data.Pickler.TH
   other-extensions:    GADTs, PolyKinds, DataKinds, KindSignatures, TypeOperators, ImplicitParams, ViewPatterns, TypeFamilies
   build-depends:       base >=4.7 && <4.8, binary >=0.7 && <0.8, data-binary-ieee754 >=0.4 && <0.5, bytestring >=0.10 && <0.11, vector >=0.10 && <0.11, template-haskell
   hs-source-dirs:      src

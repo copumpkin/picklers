@@ -1,4 +1,4 @@
-{-# LANGUAGE GADTs, PolyKinds, DataKinds, KindSignatures, TypeOperators, ImplicitParams, ViewPatterns #-}
+{-# LANGUAGE GADTs, PolyKinds, DataKinds, TypeFamilies, KindSignatures, TypeOperators, ImplicitParams, ViewPatterns, RankNTypes, ScopedTypeVariables, NoMonomorphismRestriction #-}
 module Data.Pickler where
 
 import Data.Int
@@ -12,9 +12,12 @@ import Data.Binary.IEEE754
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
 import qualified Data.Vector.Generic as G
+import qualified Data.Vector.Unboxed as U
 
 import Control.Applicative
 import Control.Monad
+
+import GHC.TypeLits
 
 import Data.Pickler.Types
 
@@ -24,6 +27,9 @@ pickle ga pa = Pickler (const ga) (\x -> (Nil, pa x))
 xmap :: (a -> b) -> (b -> a) -> Pickler ts a -> Pickler ts b
 xmap f f' (Pickler g p) = Pickler ((f <$>) . g) (p . f')
 
+
+ret :: Pickler '[t] t
+ret = Pickler (return . headH) (\t -> (t :> Nil, mempty))
 
 
 -----------------
@@ -47,8 +53,8 @@ either (Pickler gl pl) (Pickler gr pr) = Pickler g p
   where
   g (0 :> cs) = Left  <$> gl cs
   g (1 :> cs) = Right <$> gr cs
-  p (Left  l) = case pl l of (cs, b) -> (0 :> cs, b)
-  p (Right r) = case pr r of (cs, b) -> (1 :> cs, b)
+  p (Left  (pl -> (cs, b))) = (0 :> cs, b)
+  p (Right (pr -> (cs, b))) = (1 :> cs, b)
 
 
 
@@ -68,8 +74,9 @@ integral = xmap fromIntegral fromIntegral
 
 
 
--- TODO: CONTEXT FOR INTERNED STRINGS AND SUCH
 
+-- TODO: CONTEXT FOR INTERNED STRINGS AND SUCH
+-- MAGIC/CIGAM endianness marker?
 
 -- Polymorphic containers
 
@@ -90,6 +97,11 @@ vector (Pickler g p) = Pickler g' p'
   p' xs = (fromIntegral (G.length xs) :> Nil, G.foldl' (\acc q -> acc <> snd (p q)) mempty xs)
 
 
+bounded :: Integral i => Pickler cs a -> Pickler (i ': cs) a
+bounded (Pickler ga pa) = Pickler g p
+  where
+  g (l :> cs) = runGet (ga cs) <$> getLazyByteString (fromIntegral l)
+  p (pa -> (cs, b)) = (error "ugh" :> cs, b) -- XXX: *sigh*, Put needs to be an actual state monad...
 
 
 -- ByteStrings
@@ -101,6 +113,8 @@ byteString = Pickler (getByteString . fromIntegral . headH) p
 lazyByteString :: Integral i => Pickler '[i] L.ByteString
 lazyByteString = Pickler (getLazyByteString . fromIntegral . headH) p
   where p bs = (fromIntegral (L.length bs) :> Nil, fromLazyByteString bs)
+
+
 
 
 -- "Primitives"
@@ -144,3 +158,88 @@ float32be = pickle getFloat32be (execPut . putFloat32be)
 float64le, float64be :: Pickle Double
 float64le = pickle getFloat64le (execPut . putFloat64le)
 float64be = pickle getFloat64be (execPut . putFloat64be)
+
+
+
+
+
+
+-- Really just sort of a restricted linear programming language
+data Node :: [*] -> * -> * where
+  Prim :: Pickler ts t -> Node ts t
+  Bind :: Partition as bs cs -> Node bs s -> Node (s ': cs) t -> Node as t
+
+
+fromNode :: Node ts t -> Pickler ts t
+fromNode (Prim p) = p
+fromNode (Bind pt (fromNode -> Pickler g p) (fromNode -> Pickler g' p')) = Pickler g'' p''
+  where
+  g'' (partition pt -> (ls, rs)) = do s <- g ls; g' (s :> rs)
+  p'' (p' -> ((p -> (bs, b')) :> cs, b)) = (assemble pt bs cs, b' <> b)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+data LengthW :: [k] -> * where
+  Zero :: LengthW '[]
+  Suc  :: LengthW xs -> LengthW (x ': xs)
+
+class Length (xs :: [k]) where lengthW :: LengthW xs
+instance Length '[] where lengthW = Zero
+instance Length xs => Length (x ': xs) where lengthW = Suc lengthW
+
+rightsP :: Length xs => Partition xs '[] xs
+rightsP = helper lengthW
+  where
+  helper :: LengthW xs -> Partition xs '[] xs
+  helper Zero = End
+  helper (Suc l) = R (helper l)
+
+infixr 1 <:
+
+(<:) :: Length ts => Pickle s -> Node (s ': ts) t -> Node ts t
+x <: xs = Bind rightsP (Prim x) xs
+
+
+
+test1 = fromNode $ int32be <: Prim (vector int16be)
+
+Pickler gt1 pt1 = test1
+
+t1 = toLazyByteString (snd (pt1 (U.fromList [5, 6])))
+rt1 = runGet (gt1 Nil) t1 :: U.Vector Int16
+
+
+data Test = Test (U.Vector (Int8, Int16)) [Int8]
+
+test :: Pickler '[[Int8], U.Vector (Int8, Int16)] Test
+test = Pickler undefined undefined
+
+-- TODO: avoid intermediate HLists!
+-- argument permutation node?
+
+test2 = int32be 
+     <: int16le
+     <: Bind (L (R End)) (Prim (vector (pair int8 int16be))) 
+       (Bind (R (L End)) (Prim (list int8)) 
+       (Prim test))
+
